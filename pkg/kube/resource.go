@@ -16,10 +16,27 @@ limitations under the License.
 
 package kube // import "helm.sh/helm/v3/pkg/kube"
 
-import "k8s.io/cli-runtime/pkg/resource"
+import (
+	"fmt"
+
+	"k8s.io/cli-runtime/pkg/resource"
+)
 
 // ResourceList provides convenience methods for comparing collections of Infos.
 type ResourceList []*resource.Info
+
+// Delete resources that are not required
+func (r *ResourceList) Delete(info *resource.Info) {
+	// not the best way of deleting
+	var newResourceList ResourceList
+	fmt.Printf("ALICE: resolving conflicts\n")
+	for _, i := range *r {
+		if !isMatchingInfo(i, info) {
+			newResourceList.Append(i)
+		}
+	}
+	*r = newResourceList
+}
 
 // Append adds an Info to the Result.
 func (r *ResourceList) Append(val *resource.Info) {

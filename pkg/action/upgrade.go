@@ -18,7 +18,9 @@ package action
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -199,23 +201,46 @@ func (u *Upgrade) performUpgrade(originalRelease, upgradedRelease *release.Relea
 		return upgradedRelease, errors.Wrap(err, "unable to build kubernetes objects from new release manifest")
 	}
 
+	fmt.Printf("ALICE: printing current: \n")
+	for _, individualResourceInfo := range current {
+		fmt.Printf("%s, \n", individualResourceInfo.Name)
+	}
+
+	fmt.Printf("ALICE: printing target: \n")
+	for _, individualResourceInfo := range target {
+		fmt.Printf("%s, \n", individualResourceInfo.Name)
+	}
+
 	// Do a basic diff using gvk + name to figure out what new resources are being created so we can validate they don't already exist
 	existingResources := make(map[string]bool)
 	for _, r := range current {
 		existingResources[objectKey(r)] = true
 	}
 
-	var toBeCreated kube.ResourceList
+	var toBeCreated kube.ResourceList // ResourceList is a list of type []*resource.Info
 	for _, r := range target {
 		if !existingResources[objectKey(r)] {
 			toBeCreated = append(toBeCreated, r)
 		}
 	}
-
-	if err := existingResourceConflict(toBeCreated); err != nil {
-		return nil, errors.Wrap(err, "rendered manifests contain a new resource that already exists. Unable to continue with update")
+	existingResourcesJSON, err := json.MarshalIndent(existingResources, "", "  ")
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	fmt.Printf("ALICE: Existing resources: %s \n", string(existingResourcesJSON))
+	fmt.Printf("ALICE: Resources to be created: \n")
+	for _, individualResourceInfo := range toBeCreated {
+		fmt.Printf("%s, \n", individualResourceInfo.Name)
 	}
 
+	if err := existingResourceConflictResolve(&toBeCreated, &target, &current); err != nil {
+		return nil, errors.Wrap(err, "error while trying to resolve conflict between the current and target releases")
+	}
+
+	fmt.Printf("ALICE: Resources to be created after deletion: \n")
+	for _, individualResourceInfo := range toBeCreated {
+		fmt.Printf("%s, \n", individualResourceInfo.Name)
+	}
 	if u.DryRun {
 		u.cfg.Log("dry run for %s", upgradedRelease.Name)
 		upgradedRelease.Info.Description = "Dry run complete"
@@ -290,6 +315,7 @@ func (u *Upgrade) failRelease(rel *release.Release, created kube.ResourceList, e
 			for _, e := range errs {
 				errorList = append(errorList, e.Error())
 			}
+			debug.PrintStack()
 			return rel, errors.Wrapf(fmt.Errorf("unable to cleanup resources: %s", strings.Join(errorList, ", ")), "an error occurred while cleaning up resources. original upgrade error: %s", err)
 		}
 		u.cfg.Log("Resource cleanup complete")

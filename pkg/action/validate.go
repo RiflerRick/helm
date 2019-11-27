@@ -31,17 +31,45 @@ func existingResourceConflict(resources kube.ResourceList) error {
 		if err != nil {
 			return err
 		}
+		helper := resource.NewHelper(info.Client, info.Mapping)
+		if _, err := helper.Get(info.Namespace, info.Name, info.Export); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return errors.Wrap(err, "could not get information about the resource")
+		}
+		return fmt.Errorf("existing resource conflict: kind: %s, namespace: %s, name: %s", info.Mapping.GroupVersionKind.Kind, info.Namespace, info.Name)
+	})
+	return err
+}
+
+func existingResourceConflictResolve(resources *(kube.ResourceList), current *(kube.ResourceList), target *(kube.ResourceList)) error {
+	err := resources.Visit(func(info *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
 
 		helper := resource.NewHelper(info.Client, info.Mapping)
 		if _, err := helper.Get(info.Namespace, info.Name, info.Export); err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
-
 			return errors.Wrap(err, "could not get information about the resource")
 		}
+		resources.Delete(info)
+		target.Delete(info)
+		current.Delete(info)
 
-		return fmt.Errorf("existing resource conflict: kind: %s, namespace: %s, name: %s", info.Mapping.GroupVersionKind.Kind, info.Namespace, info.Name)
+		fmt.Printf("ALICE: current inside existingResourceConflictResolve: \n")
+		for _, individualResourceInfo := range *current {
+			fmt.Printf("%s, \n", individualResourceInfo.Name)
+		}
+
+		fmt.Printf("ALICE: target inside existingResourceConflictResolve: \n")
+		for _, individualResourceInfo := range *target {
+			fmt.Printf("%s, \n", individualResourceInfo.Name)
+		}
+		return nil
 	})
 	return err
 }
